@@ -129,7 +129,6 @@
     </table>
   </section>
 
-  <script src="supabase-config.js"></script>
   <script>
     // Context7 API key (provided): ctx7sk-13de39d7-6b68-415a-8c49-af4609507e15
     // Supabase REST insert: project evjphlnumhgeymceyvat, table public.scores
@@ -155,13 +154,8 @@
     const playerInput = document.getElementById("player");
     const leaderboardBody = document.getElementById("leaderboard-body");
 
-    const supabaseUrl = window.SUPABASE_URL;
-    const supabaseKey = window.SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      messageEl.textContent = "Supabase 키/URL이 설정되지 않았습니다. config.js를 확인하세요.";
-      throw new Error("Missing Supabase config");
-    }
+    const supabaseUrl = "https://evjphlnumhgeymceyvat.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2anBobG51bWhnZXltY2V5dmF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3ODM5NjQsImV4cCI6MjA4MTM1OTk2NH0.c4zbCdVRIwktsEHjdujCT6StREaviguqFct2H72Xn2Y";
 
     let deck = [];
     let firstPick = null;
