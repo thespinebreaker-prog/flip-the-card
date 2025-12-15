@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canvas 카드 뒤집기</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #0b1224;
+      --accent: #38bdf8;
+      --muted: #94a3b8;
+      --success: #22c55e;
+      --error: #f97316;
+      --text: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 10% 20%, rgba(56,189,248,0.1), transparent 25%),
+                  radial-gradient(circle at 80% 0%, rgba(34,197,94,0.08), transparent 22%),
+                  var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+    h1 { margin: 0; font-size: 28px; }
+    .panel {
+      background: rgba(11,18,36,0.75);
+      border: 1px solid rgba(56,189,248,0.25);
+      border-radius: 14px;
+      padding: 14px 16px;
+      backdrop-filter: blur(4px);
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .panel label { font-size: 14px; color: var(--muted); }
+    input {
+      background: #0d162b;
+      border: 1px solid rgba(56,189,248,0.35);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      min-width: 120px;
+    }
+    button {
+      background: var(--accent);
+      border: none;
+      color: #031020;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      box-shadow: 0 8px 20px rgba(56, 189, 248, 0.25);
+    }
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); box-shadow: none; }
+    .stats { display: flex; gap: 14px; font-size: 14px; }
+    .status { min-height: 20px; font-weight: 600; }
+    canvas {
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(15,23,42,0.9), rgba(9,12,24,0.96));
+      box-shadow: 0 12px 30px rgba(0,0,0,0.28);
+    }
+    .leaderboard {
+      width: min(720px, 96vw);
+      background: rgba(11,18,36,0.78);
+      border: 1px solid rgba(56,189,248,0.2);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
+    .leaderboard h2 { margin: 0 0 4px; font-size: 20px; }
+    .leaderboard-note { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      color: var(--text);
+    }
+    th, td {
+      padding: 8px 6px;
+      text-align: left;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+  </style>
+</head>
+<body>
+  <h1>Canvas 카드 뒤집기</h1>
+  <div class="panel">
+    <label>플레이어 <input id="player" placeholder="닉네임" maxlength="30"></label>
+    <button id="restart">다시 시작</button>
+    <div class="stats">
+      <span>시도: <strong id="tries">0</strong></span>
+      <span>성공: <strong id="matches">0</strong> / <span id="total">0</span></span>
+      <span>시간: <strong id="time">0.0s</strong></span>
+    </div>
+  </div>
+  <div class="status" id="message"></div>
+  <canvas id="board" width="720" height="760" aria-label="memory cards"></canvas>
+  <section class="leaderboard">
+    <h2>리더보드</h2>
+    <p class="leaderboard-note">시도 횟수 → 시간 순으로 상위 10개 기록을 보여줍니다.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>순위</th>
+          <th>플레이어</th>
+          <th>시도</th>
+          <th>시간(s)</th>
+          <th>기록 시간</th>
+        </tr>
+      </thead>
+      <tbody id="leaderboard-body">
+        <tr><td colspan="5">기록을 불러오는 중...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <script>
+    // Context7 API key (provided): ctx7sk-13de39d7-6b68-415a-8c49-af4609507e15
+    // Supabase REST insert: project evjphlnumhgeymceyvat, table public.scores
+
+    const EMOJIS = ["🍀","🚀","🎧","🌟","🍣","🧩","📀","🎯"];
+    const PAIRS = 8;
+    const COLS = 4;
+    const ROWS = 4;
+    const CARD_W = 140;
+    const CARD_H = 160;
+    const GAP = 12;
+    const OFFSET_X = 30;
+    const OFFSET_Y = 30;
+
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const triesEl = document.getElementById("tries");
+    const matchesEl = document.getElementById("matches");
+    const totalEl = document.getElementById("total");
+    const timeEl = document.getElementById("time");
+    const messageEl = document.getElementById("message");
+    const restartBtn = document.getElementById("restart");
+    const playerInput = document.getElementById("player");
+    const leaderboardBody = document.getElementById("leaderboard-body");
+
+    const supabaseUrl = "https://evjphlnumhgeymceyvat.supabase.co";
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2anBobG51bWhnZXltY2V5dmF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3ODM5NjQsImV4cCI6MjA4MTM1OTk2NH0.c4zbCdVRIwktsEHjdujCT6StREaviguqFct2H72Xn2Y";
+
+    let deck = [];
+    let firstPick = null;
+    let lock = false;
+    let tries = 0;
+    let matches = 0;
+    let timerStart = null;
+    let rafId = null;
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function buildDeck() {
+      const icons = shuffle([...EMOJIS]).slice(0, PAIRS);
+      deck = shuffle([...icons, ...icons]).map((icon, idx) => {
+        const col = idx % COLS;
+        const row = Math.floor(idx / COLS);
+        return {
+          id: idx,
+          icon,
+          matched: false,
+          reveal: 0, // 0(front hidden) -> 1(back shown)
+          x: OFFSET_X + col * (CARD_W + GAP),
+          y: OFFSET_Y + row * (CARD_H + GAP),
+        };
+      });
+      totalEl.textContent = PAIRS;
+    }
+
+    function drawCard(card) {
+      const { x, y, reveal, matched } = card;
+      const width = CARD_W * (1 - Math.abs(reveal - 0.5) * 2); // flip scale
+      const centerX = x + CARD_W / 2;
+      const left = centerX - width / 2;
+
+      ctx.save();
+      ctx.translate(left, y);
+      const radius = 12;
+      const grad = ctx.createLinearGradient(0, 0, 0, CARD_H);
+      grad.addColorStop(0, matched ? "#1dbf63" : "#1f2937");
+      grad.addColorStop(1, matched ? "#18a04f" : "#0f172a");
+      ctx.fillStyle = reveal >= 0.5 ? "#e2e8f0" : grad;
+      ctx.strokeStyle = matched ? "rgba(34,197,94,0.8)" : "rgba(56,189,248,0.5)";
+      ctx.lineWidth = 2;
+
+      roundRect(ctx, 0, 0, width, CARD_H, radius);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = reveal >= 0.5 ? "#0b1224" : "#94a3b8";
+      ctx.font = `${reveal >= 0.5 ? 42 : 18}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.translate(width / 2, CARD_H / 2);
+      ctx.scale(reveal >= 0.5 ? 1 : 1, 1);
+      ctx.fillText(reveal >= 0.5 ? card.icon : "?", 0, 0);
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      deck.forEach(drawCard);
+      rafId = requestAnimationFrame(render);
+    }
+
+    function updateTime() {
+      if (!timerStart) return;
+      const elapsed = (performance.now() - timerStart) / 1000;
+      timeEl.textContent = `${elapsed.toFixed(1)}s`;
+    }
+
+    function resetGame() {
+      firstPick = null;
+      lock = false;
+      tries = 0;
+      matches = 0;
+      triesEl.textContent = tries;
+      matchesEl.textContent = matches;
+      messageEl.textContent = "";
+      timerStart = performance.now();
+      updateTime();
+      buildDeck();
+      if (rafId) cancelAnimationFrame(rafId);
+      render();
+    }
+
+    function cardAt(x, y) {
+      return deck.find(c =>
+        x >= c.x && x <= c.x + CARD_W &&
+        y >= c.y && y <= c.y + CARD_H
+      );
+    }
+
+    function flipTo(card, target) {
+      // instant flip to guarantee icon is visible (simple + robust)
+      card.reveal = target;
+    }
+
+    function handleClick(evt) {
+      if (lock) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const y = evt.clientY - rect.top;
+      const card = cardAt(x, y);
+      if (!card || card.matched) return;
+      if (card.reveal >= 0.5) return;
+
+      flipTo(card, 1);
+
+      if (!firstPick) {
+        firstPick = card;
+        return;
+      }
+
+      lock = true;
+      tries += 1;
+      triesEl.textContent = tries;
+
+      if (firstPick.icon === card.icon) {
+        card.matched = true;
+        firstPick.matched = true;
+        flipTo(card, 1);
+        flipTo(firstPick, 1);
+        matches += 1;
+        matchesEl.textContent = matches;
+        messageEl.textContent = "굿! 짝을 찾았어요.";
+        setTimeout(() => {
+          finishTurn();
+        }, 400);
+      } else {
+        messageEl.textContent = "다시 시도해보세요.";
+        setTimeout(() => {
+          flipTo(card, 0);
+          flipTo(firstPick, 0);
+          finishTurn();
+        }, 700);
+      }
+    }
+
+    function finishTurn() {
+      firstPick = null;
+      lock = false;
+      updateTime();
+      if (matches === PAIRS) {
+        const elapsedMs = Math.round(performance.now() - timerStart);
+        const player = playerInput.value.trim() || "anon";
+        messageEl.textContent = `완료! 총 ${tries}번 시도, ${(elapsedMs/1000).toFixed(1)}초`;
+        saveScore({ player, tries, elapsed_ms: elapsedMs });
+      }
+    }
+
+    async function saveScore(payload) {
+      try {
+        const res = await fetch(`${supabaseUrl}/rest/v1/scores`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": supabaseKey,
+            "Authorization": `Bearer ${supabaseKey}`,
+            "Prefer": "return=minimal",
+          },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(`Supabase error ${res.status}`);
+        messageEl.textContent += " | 점수 저장 완료!";
+        await loadLeaderboard();
+      } catch (err) {
+        console.error(err);
+        messageEl.textContent += " | 점수 저장 실패";
+      }
+    }
+
+    function formatTime(ms) {
+      return (ms / 1000).toFixed(1);
+    }
+
+    function formatDate(ts) {
+      const date = new Date(ts);
+      return date.toLocaleString("ko-KR", { hour12: false });
+    }
+
+    async function loadLeaderboard() {
+      leaderboardBody.innerHTML = "<tr><td colspan='5'>기록을 불러오는 중...</td></tr>";
+      try {
+        const query = "?select=player,tries,elapsed_ms,created_at&order=tries.asc&order=elapsed_ms.asc&limit=10";
+        const res = await fetch(`${supabaseUrl}/rest/v1/scores${query}`, {
+          headers: {
+            "apikey": supabaseKey,
+            "Authorization": `Bearer ${supabaseKey}`,
+          },
+        });
+        if (!res.ok) throw new Error(`Supabase fetch error ${res.status}`);
+        const data = await res.json();
+        if (!data.length) {
+          leaderboardBody.innerHTML = "<tr><td colspan='5'>아직 기록이 없습니다. 먼저 플레이 해보세요!</td></tr>";
+          return;
+        }
+        leaderboardBody.innerHTML = data.map((row, idx) => `
+          <tr>
+            <td>${idx + 1}</td>
+            <td>${row.player || "anon"}</td>
+            <td>${row.tries}</td>
+            <td>${formatTime(row.elapsed_ms)}</td>
+            <td>${formatDate(row.created_at)}</td>
+          </tr>
+        `).join("");
+      } catch (err) {
+        console.error(err);
+        leaderboardBody.innerHTML = "<tr><td colspan='5'>리더보드 불러오기 실패</td></tr>";
+      }
+    }
+
+    canvas.addEventListener("click", handleClick);
+    restartBtn.addEventListener("click", resetGame);
+    resetGame();
+    loadLeaderboard();
+
+    // Keep time display ticking
+    setInterval(updateTime, 120);
+  </script>
+</body>
+</html>
+
